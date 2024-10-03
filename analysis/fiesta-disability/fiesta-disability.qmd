@@ -1,6 +1,6 @@
 ---
 title: "FIESTA subpopulations: Disability"
-subtitle: "Distribution of annual reported earnings before and after the first Income Support spell"
+subtitle: "Distributions of annual reported earnings before and after the first Income Support spell"
 author: "ROD"
 format:
   html:
@@ -26,7 +26,8 @@ editor_options:
 #| warning: false
 cat("Working directory: ", getwd())
 library(knitr)
-opts_knit$set(root.dir='../../') # keep this chunk isolated  
+opts_knit$set(root.dir='../../') # set according to your project folder
+# keep this chunk isolated  
 ```
 
 ```{r}
@@ -85,6 +86,8 @@ library(arrow)
 library(glue)
 library(scales)
 library(kableExtra)
+library(knitr)
+library(DT)
 ```
 
 ```{r}
@@ -94,9 +97,9 @@ library(kableExtra)
 #| results: hide
 #| message: false
 #| code-fold: true
-base::source("./scripts/common-functions.R") # project-level
-base::source("./scripts/operational-functions.R") # project-level
-base::source("./scripts/graphing/graph-presets.R") # project-level
+# base::source("./scripts/common-functions.R") # project-level
+# base::source("./scripts/operational-functions.R") # project-level
+# base::source("./scripts/graphing/graph-presets.R") # project-level
 ```
 
 ```{r}
@@ -108,21 +111,21 @@ base::source("./scripts/graphing/graph-presets.R") # project-level
 #| code-fold: true
 
 # printed figures will go here:
-prints_folder <- paste0("./analysis/fiesta-disability/prints/")
-if(!file.exists(prints_folder)){dir.create(file.path(prints_folder))}
-
-# printed figures will go here:
+# prints_folder <- paste0("./analysis/fiesta-disability/prints/")
+# if(!file.exists(prints_folder)){dir.create(file.path(prints_folder))}
+# 
+# # printed figures will go here:
 local_root <- "./analysis/fiesta-disability/"
-
-local_data <- paste0(local_root, "data-private/") # if need explicit hide
-if (!fs::dir_exists(local_data)) {fs::dir_create(local_data)}
-
-# serialized propensity score models are stored here:
-twang_folder <- paste0(local_root,"twang/")
-# serialized twang diagnostic graphs and tables are stored here
-twang_diagnostics <- paste0(local_root,"twang-diagnostics/")
-# serialized model estimates are stored here
-solution_folder  <- paste0(local_root,"model-solution/")
+# 
+# local_data <- paste0(local_root, "data-private/") # if need explicit hide
+# if (!fs::dir_exists(local_data)) {fs::dir_create(local_data)}
+# 
+# # serialized propensity score models are stored here:
+# twang_folder <- paste0(local_root,"twang/")
+# # serialized twang diagnostic graphs and tables are stored here
+# twang_diagnostics <- paste0(local_root,"twang-diagnostics/")
+# # serialized model estimates are stored here
+# solution_folder  <- paste0(local_root,"model-solution/")
 
 ```
 
@@ -134,7 +137,43 @@ solution_folder  <- paste0(local_root,"model-solution/")
 #| message: false
 #| code-fold: true
 
+# adds neat styling to your knitr table
+neat <- function(x, output_format = "html"){
+  # knitr.table.format = output_format
+  if(output_format == "pandoc"){
+    x_t <- knitr::kable(x, format = "pandoc")
+  }else{
+    x_t <- x %>%
+      # x %>%
+      # knitr::kable() %>%
+      knitr::kable(format=output_format) %>%
+      kableExtra::kable_styling(
+        bootstrap_options = c("striped", "hover", "condensed","responsive"),
+        # bootstrap_options = c( "condensed"),
+        full_width = F,
+        position = "left"
+      )
+  }
+  return(x_t)
+}
+# ds %>% distinct(id) %>% count() %>% neat(10)
 
+# adds a formated datatable
+neat_DT <- function(x, filter_="top",nrows=20,...){
+  
+  xt <- x %>%
+    as.data.frame() %>%
+    DT::datatable(
+      class   = 'cell-border stripe'
+      ,filter  = filter_
+      ,options = list(
+        pageLength = nrows,
+        autoWidth  = FALSE
+      )
+      , ...
+    )
+  return(xt)
+}
 ```
 
 ```{r}
@@ -154,36 +193,146 @@ solution_folder  <- paste0(local_root,"model-solution/")
 #| code-fold: show
 #| cache: false
 
+path_file_outcome <- "./analysis/fiesta-disability/data-local/by-outcome-category.rds"
+path_file_delta   <- "./analysis/fiesta-disability/data-local/by-outcome-delta.rds"
+path_file_wave    <- "./analysis/fiesta-disability/data-local/by-wave.rds"
 
+ds_outcome <- readr::read_rds(path_file_outcome) # earnings binned by 5K 
+ds_delta <- readr::read_rds(path_file_delta) # delta, binned by 5K
+ds_wave <- readr::read_rds(path_file_wave) # summary by waves in Income Support timeline
 ```
 
 ```{r}
 #| label: tweak-data-0
-#| code-summary: Organize variable for use in current report
-#| code-fold: false
-ds0 <-
-  ds_cohort %>% # each row is a spell, clients may have multiples
-  select(
-    all_of(
-      c(
-        design # ids, dates, spell properties
-        ,outcomes # spell duration, return within 12 months
-        ,intervention_assessment # any employability assessment events
-        ,intervention_ceis # CEIS
-        ,intervention_wtr # Training for Work, Work Foundations, English as Second
-        ,covariates # collected at the start of the spell
-        ,intervention_count # tally over the Window of Intervention
-        ,intervention_flag # at least one in the window of Intervention
-      )
-    ), everything()
-  ) 
+
+# arrange for convenience
+ds_outcome <- 
+  ds_outcome %>% 
+  select(tx_name,waveF,disability2, tx,earnings_cat, everything()) %>% 
+  arrange(tx_name, waveF, disability2, tx)
+
+ds_delta <- 
+  ds_delta %>% 
+  select(tx_name,waveF,disability2, tx,earnings_cat, everything()) %>% 
+  arrange(tx_name, waveF, disability2, tx)
+
+ds_wave <- 
+  ds_wave %>% 
+  select(tx_name,waveF,disability2, tx, everything()) %>% 
+  arrange(tx_name, waveF, disability2, tx)
+
+```
+
+
+# Input overview
+
+We import three frequency tables:
+
+- `ds_outcome` - distribution of annual earnings broken down by disability status (Y/N) and intervention participation (Y/N of CP, EC, JP, WK). Computed at each year relative to the Income Support spell. The earnings were binned by 5K with '0' and '100+' as separate categories. 
+
+- `ds_delta` - distribution of the __difference__ in the annual earnings between 'Before' and 'After' time points. Negative values indicate decrease.  The values of delta were binned by 5K with '0' and '100+' as separate categories. 
+
+- `ds_wave` - Annual earnings are treated as numeric. Distribution of annual earnings is summarized without bins, as a numeric variable. Summary statistics include 5th and 95th percentiles, quartiles, min, max, and the mean.
+
+
+
+# Earnings Binned
+
+Clients' timeline (`waveF`) has been organized as a sequence of years relative to their first Income Support spell (e.g. "Before", "After", "After+1"). Note that the distance from "Before" and "After" varies by clients, because the duration of the spell varies. All other intervals equal 1 year. This cohort has been filtered to include only those who had both "Before" and "After" data points, but other points are optional and caution must be exercised to account for nonrandom missingness when summarizing at later time points. 
+
+```{r}
+#| code-summary: Number of clients at each time point
+ds_outcome %>% 
+  filter(tx_name == "Career Planning") %>% # one of four: CP, EC, JP, WK
+  group_by(tx_name, waveF) %>% 
+  summarize(
+    client_count = sum(client_count, na.rm = T)
+    ,.groups = "drop"
+  ) %>% 
+  neat()
+```
+We will be keeping only "Before" and "After" time points for current report.
+
+At each time point, we break down clients into four groups (2x2) based on their disability status ("With Disability" "No Disability") and presence of a specific intervention (e.g. "With Career Planning", "No Career Planning") during 12 months preceding the start of their Incomes Support spell or any time before exit from IS. 
+
+```{r}
+#| code-summary: View of a single time point
+ds_outcome %>% 
+  filter(tx_name == "Career Planning") %>% 
+  filter(waveF %in% c("Before")) %>%
+  group_by(tx_name, waveF, disability2, tx) %>% 
+  summarize(
+    client_count = sum(client_count)
+    # ,row_count = n() # 22, one for each level of earnings_cat
+    ,.groups = "drop"
+  ) %>% 
+  group_by(waveF) %>% 
+  mutate(cc_total = sum(client_count)) %>% 
+  ungroup() %>% 
+  arrange(tx_name, waveF, disability2,tx) %>%
+  neat()
+```
+
+Within each of these four subgroups, we have a frequency distribution table of the annual total earnings reported on the tax return.
+
+```{r}
+#| code-summary: Frequency distribution of the annual earnings at one time point
+
+ds_outcome %>% 
+  filter(tx_name == "Career Planning") %>% 
+  filter(waveF %in% c("Before")) %>%
+  group_by(earnings_cat) %>%
+  summarize(
+     client_count = sum(client_count)
+     ,row_count = n() # 4, one for each of the 2x2 disability-tx combo
+     ,.groups = "drop"
+  ) %>% 
+  neat()
 ```
 
 ```{r}
-#| label: inspect-data-1
-#| code-summary: Inspect
-#| code-fold: false
-#| eval: false
+#| code-summary: View for a single bin of earnings at one time point
 
-ds0 %>% glimpse() 
+ds_outcome %>% 
+  filter(tx_name == "Career Planning") %>% 
+  filter(waveF == "Before") %>% 
+  filter(earnings_cat == "0") %>% 
+  select(tx_name,waveF,disability2, tx,earnings_cat, everything()) %>% 
+  arrange(tx_name, waveF, disability2, tx) %>% 
+  select(1:6) %>% 
+  neat()
+
+
 ```
+
+# Delta binned
+
+The focal outcome of this section is `delta` the difference in annual earnings between two time points: 'Before' and 'After' year, relative to the participation in Income Support program for the first time. We computed it at each time point, but only 'After' is included in current report. Deltas for the subsequent time points are distances from the previous one. 
+
+```{r}
+ds_delta %>% 
+ filter(tx_name == "Career Planning") %>% 
+ filter( waveF == "After") %>% 
+ group_by(tx_name, waveF, disability2, tx) %>%
+  summarize(
+     client_count = sum(client_count)
+     # ,row_count = n() # 22, one for each level of earnings_cat
+     ,.groups = "drop"
+  ) %>% 
+  neat()
+
+```
+
+As with `ds_outcome`, within each of these four subgroups we have a frequency distribution table of the annual total earnings reported on the tax return.
+
+# Wave
+
+For this level of summary, we treated annual earnings as a continuous, numerical variable. At each time point (relative IS, e.g. 'Before', `After`, 'After+1') we create a numerical summary of the distribution of the annual earnings. The summary includes 5th and 95th percentiles, quartiles, min, max, and the mean.
+
+```{r}
+ds_wave %>% 
+  slice(1:10) %>% 
+  select(1:6) %>% 
+  neat()
+```
+
